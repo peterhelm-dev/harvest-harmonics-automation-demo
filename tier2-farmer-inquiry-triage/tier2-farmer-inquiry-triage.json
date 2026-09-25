@@ -1,0 +1,144 @@
+{
+  "name": "Tier 2 - Farmer Inquiry Triage & Draft Response (n8n + AI)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger (Demo)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DUMMY DATA \u2014 replace with a real Gmail/GHL inbox trigger or website chat widget webhook.\n// Deliberately messy, inconsistent, real-world-shaped farmer questions \u2014\n// mixed technical, sales, and skeptical inquiries, like real inbound would look.\nconst inquiries = [\n  { from: 'greg.holt@example.com', channel: 'website_chat', message: 'does this actually work or is it a scam. I have 200 acres of almonds and cant afford to waste money on snake oil' },\n  { from: 'maria.santos@example.com', channel: 'email', message: 'Hi, I run a certified organic vineyard in Sonoma. Will using the Crop Booster affect my organic certification? Need an answer before I can even consider this.' },\n  { from: 'unknown', channel: 'website_chat', message: 'hey how fast will i see results on my citrus, harvest is in 6 weeks and im desperate' },\n  { from: 'dave.k@example.com', channel: 'email', message: 'Following up on my install from 3 weeks ago -- my irrigation tech says the micro-transmitters look loose on the pipe fitting near the pump. Is that normal or do I need a repair visit? This is time sensitive, we irrigate tomorrow.' },\n  { from: 'linda.chow@example.com', channel: 'website_chat', message: 'just want the price for 12 acres of strawberries with drip irrigation, not organic' }\n];\nreturn inquiries.map(i => ({ json: i }));"
+      },
+      "id": "dummy-inquiries",
+      "name": "Dummy Messy Inquiries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-inquiries",
+      "name": "Loop Over Inquiries",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [180, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 500,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are triaging inbound farmer inquiries for Harvest Harmonics, a bio-energetic crop technology company (Kyminasi Crop Booster \u2014 a non-chemical biostimulant delivered through irrigation water). Read this inquiry and respond ONLY with valid JSON, no other text, in this exact shape: {\\\"category\\\": 'skeptical_objection' or 'organic_certification_question' or 'urgent_technical_issue' or 'pricing_request' or 'timeline_question', \\\"is_urgent\\\": boolean, \\\"lead_quality\\\": 'high' or 'medium' or 'low', \\\"draft_reply\\\": string, \\\"suggested_staff_action\\\": string}. Mark is_urgent true only for active installation problems, time-sensitive irrigation events, or anything implying risk to a customer's current crop. draft_reply should be a warm, specific, non-generic 2-4 sentence reply grounded only in real Harvest Harmonics facts: 32 independent university trials plus 430 more underway, no chemicals, works through existing irrigation, average yield increase 15-30% as documented by farmers, compatible with organic operations (it's non-chemical, so it does not conflict with organic certification, but suggest they confirm with their certifier since programs vary), typical visible results in 12-30 days depending on crop. Never invent facts not given here. Channel: {{$json.channel}}. From: {{$json.from}}. Message: {{$json.message}}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "claude-triage",
+      "name": "Claude: Classify & Draft Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude's JSON text response out of the Anthropic API envelope.\n// Handles markdown code-fence wrapping and processes ALL items (not just item 0).\nfunction extractJson(raw) {\n  const fenced = raw.match(/```(?:json)?\\s*([\\s\\S]*?)\\s*```/);\n  const cleaned = fenced ? fenced[1] : raw;\n  return JSON.parse(cleaned.trim());\n}\n\nreturn items.map(item => {\n  const raw = item.json.content[0].text;\n  let parsed;\n  try {\n    parsed = extractJson(raw);\n  } catch (e) {\n    parsed = { category: 'PARSE_ERROR', is_urgent: true, lead_quality: 'unknown', draft_reply: '', suggested_staff_action: 'Manual review - could not parse AI response: ' + raw };\n  }\n  return { json: parsed };\n});"
+      },
+      "id": "parse-claude",
+      "name": "Parse Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{$json.is_urgent}}", "rightValue": true, "operator": { "type": "boolean", "operation": "equal" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-urgent",
+      "name": "Is Urgent?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "alert_message", "type": "string", "value": "=\ud83d\udea8 URGENT INQUIRY ({{$json.category}}): {{$json.suggested_staff_action}}" }
+          ]
+        }
+      },
+      "id": "draft-urgent-alert",
+      "name": "Draft Urgent Staff Alert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1060, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "queue_row", "type": "string", "value": "={{$json.category}} | lead_quality={{$json.lead_quality}} | reply queued for staff approval" }
+          ]
+        }
+      },
+      "id": "draft-queue-row",
+      "name": "Queue Reply For Staff Approval",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1060, 420]
+    },
+    {
+      "parameters": {},
+      "id": "mock-slack",
+      "name": "MOCK ALERT: Slack/SMS to Staff",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1280, 200]
+    },
+    {
+      "parameters": {},
+      "id": "mock-crm-queue",
+      "name": "MOCK: Drop Draft Into GHL/CRM Inbox for Approval",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1280, 420]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Demo)": { "main": [[{ "node": "Dummy Messy Inquiries", "type": "main", "index": 0 }]] },
+    "Dummy Messy Inquiries": { "main": [[{ "node": "Loop Over Inquiries", "type": "main", "index": 0 }]] },
+    "Loop Over Inquiries": { "main": [[], [{ "node": "Claude: Classify & Draft Reply", "type": "main", "index": 0 }]] },
+    "Claude: Classify & Draft Reply": { "main": [[{ "node": "Parse Claude Response", "type": "main", "index": 0 }]] },
+    "Parse Claude Response": { "main": [[{ "node": "Is Urgent?", "type": "main", "index": 0 }]] },
+    "Is Urgent?": {
+      "main": [
+        [{ "node": "Draft Urgent Staff Alert", "type": "main", "index": 0 }],
+        [{ "node": "Queue Reply For Staff Approval", "type": "main", "index": 0 }]
+      ]
+    },
+    "Draft Urgent Staff Alert": { "main": [[{ "node": "MOCK ALERT: Slack/SMS to Staff", "type": "main", "index": 0 }]] },
+    "Queue Reply For Staff Approval": { "main": [[{ "node": "MOCK: Drop Draft Into GHL/CRM Inbox for Approval", "type": "main", "index": 0 }]] },
+    "MOCK ALERT: Slack/SMS to Staff": { "main": [[{ "node": "Loop Over Inquiries", "type": "main", "index": 0 }]] },
+    "MOCK: Drop Draft Into GHL/CRM Inbox for Approval": { "main": [[{ "node": "Loop Over Inquiries", "type": "main", "index": 0 }]] }
+  }
+}

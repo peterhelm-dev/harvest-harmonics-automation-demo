@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Harvest Harmonics -- Farm Renewal Tracker</title>
+  <style>
+    :root {
+      --bg: #0f1310;
+      --card: #161c17;
+      --border: #263129;
+      --text: #e9ece9;
+      --muted: #98a396;
+      --green: #4caf6e;
+      --yellow: #d4a72c;
+      --red: #d9564f;
+      --accent: #5fae5a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 32px;
+    }
+    h1 { font-size: 22px; margin-bottom: 4px; }
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .summary-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+    .summary-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      min-width: 120px;
+    }
+    .summary-card .num { font-size: 24px; font-weight: 700; }
+    .summary-card .label { font-size: 12px; color: var(--muted); }
+    .red-flag .num { color: var(--red); }
+
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    th, td { padding: 10px 12px; text-align: left; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+    tr:last-child td { border-bottom: none; }
+
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+    .dot.green { background: var(--green); }
+    .dot.yellow { background: var(--yellow); }
+    .dot.red { background: var(--red); }
+
+    .status-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; text-transform: capitalize; }
+    .status-active { background: #1e3a24; color: var(--green); }
+    .status-lapsed { background: #3d1e1c; color: var(--red); }
+
+    select, input, textarea, button {
+      background: #1a211b; color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 6px 8px; font-size: 12px; font-family: inherit;
+    }
+    button { cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+    button.primary:hover { opacity: 0.9; }
+
+    .add-form { display: flex; gap: 8px; margin: 24px 0; flex-wrap: wrap; align-items: center; background: var(--card); border: 1px solid var(--border); padding: 14px; border-radius: 10px; }
+    .add-form input { min-width: 130px; }
+
+    .msg-box { display: none; margin-top: 8px; background: #0f140f; border: 1px dashed var(--border); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; max-width: 380px; }
+    .draft-btn { display: block; margin-top: 4px; }
+    .ai-warning { background: #3d2e10; color: var(--yellow); padding: 8px 14px; border-radius: 8px; font-size: 12px; margin-bottom: 16px; }
+    .muted-cell { color: var(--muted); max-width: 200px; }
+    .flags { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>🌾 Harvest Harmonics -- Farm Renewal Tracker</h1>
+  <div class="subtitle">Tier 3 demo -- every farm's install, renewal date, and last touch, in one view, with AI-drafted outreach.</div>
+
+  {% if not ai_enabled %}
+  <div class="ai-warning">⚠️ No ANTHROPIC_API_KEY detected -- "Draft Message" buttons will show an error until you add your key to .env and restart.</div>
+  {% endif %}
+
+  <div class="summary-row">
+    <div class="summary-card"><div class="num">{{ summary.total_farms }}</div><div class="label">Total farms</div></div>
+    <div class="summary-card"><div class="num">{{ summary.total_acres }}</div><div class="label">Total acres</div></div>
+    <div class="summary-card red-flag"><div class="num">{{ summary.renewals_due_60d }}</div><div class="label">Renewals due &le;60 days</div></div>
+    <div class="summary-card red-flag"><div class="num">{{ summary.lapsed }}</div><div class="label">Lapsed</div></div>
+    <div class="summary-card red-flag"><div class="num">{{ summary.needs_checkin }}</div><div class="label">No contact 180+ days</div></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Flags</th>
+        <th>Farm</th>
+        <th>Grower</th>
+        <th>Crop / Acres</th>
+        <th>Program</th>
+        <th>Renewal Date</th>
+        <th>Status</th>
+        <th>Last Result</th>
+        <th>Notes</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>
+          <div class="flags">
+            <span><span class="dot {{ item.renewal_flag }}"></span>renewal</span>
+            <span><span class="dot {{ item.contact_flag }}"></span>contact</span>
+          </div>
+        </td>
+        <td>{{ item.farm_name }}<br><span class="muted-cell">{{ item.state }}</span></td>
+        <td>{{ item.grower_name }}</td>
+        <td>{{ item.crop }}<br><span class="muted-cell">{{ item.acreage }} ac</span></td>
+        <td>{{ item.program }}</td>
+        <td>{{ item.renewal_date }}<br><span class="muted-cell">{{ item.days_to_renewal }}d</span></td>
+        <td>
+          <form method="post" action="/update_status/{{ item.id }}" style="display:inline">
+            <select name="status" onchange="this.form.submit()" class="status-badge status-{{ item.status }}">
+              <option value="active" {% if item.status == 'active' %}selected{% endif %}>active</option>
+              <option value="lapsed" {% if item.status == 'lapsed' %}selected{% endif %}>lapsed</option>
+            </select>
+          </form>
+        </td>
+        <td class="muted-cell">{{ item.last_yield_result }}</td>
+        <td class="muted-cell">{{ item.notes }}</td>
+        <td>
+          <button class="draft-btn" onclick="draftMessage({{ item.id }}, this)">Draft Message</button>
+          <div class="msg-box" id="msg-{{ item.id }}"></div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form class="add-form" method="post" action="/add">
+    <input name="farm_name" placeholder="Farm name" required>
+    <input name="grower_name" placeholder="Grower name" required>
+    <input name="state" placeholder="State" required>
+    <input name="crop" placeholder="Crop" required>
+    <input name="acreage" type="number" placeholder="Acreage" required>
+    <input name="program" placeholder="Program (e.g. YieldMAX)" required>
+    <input name="install_date" type="date" required>
+    <input name="notes" placeholder="Notes (optional)" style="min-width:180px;">
+    <button class="primary" type="submit">+ Add Farm</button>
+  </form>
+
+  <script>
+    async function draftMessage(id, btn) {
+      btn.disabled = true;
+      btn.textContent = "Drafting...";
+      const box = document.getElementById('msg-' + id);
+      box.style.display = 'block';
+      box.textContent = 'Calling Claude...';
+      try {
+        const res = await fetch('/draft_message/' + id, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+          box.textContent = 'Error: ' + data.error;
+        } else {
+          box.textContent = data.message;
+        }
+      } catch (e) {
+        box.textContent = 'Request failed: ' + e;
+      }
+      btn.disabled = false;
+      btn.textContent = 'Redraft Message';
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+{
+  "name": "Tier 1 - Lead Intake & Pricing-Tier Router (Simple, No AI)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger (Demo)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-260, 340]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "harvest-harmonics-lead",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (Production - GHL/Website Form)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-260, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DUMMY DATA \u2014 replace this node with the real GHL/website form submission payload.\n// Simulates inbound leads from the \"Start Boosting Your Crops Today\" form,\n// each with the fields a farmer would realistically submit: acreage, crop, irrigation type.\nconst leads = [\n  { name: 'Duane Barker', email: 'duane.b@example.com', phone: '+15555550101', state: 'OR', crop: 'Wine Grapes', acreage: 4, irrigation_type: 'drip', organic: true, notes: 'Interested after seeing a neighbor\\u2019s results.' },\n  { name: 'Jim Reed', email: 'jim.r@example.com', phone: '+15555550102', state: 'CA', crop: 'Citrus', acreage: 8, irrigation_type: 'drip', organic: false, notes: 'Wants to compare Crop Booster vs Bio Booster.' },\n  { name: 'Carla Ibanez', email: 'carla.i@example.com', phone: '+15555550103', state: 'FL', crop: 'Citrus', acreage: 22, irrigation_type: 'micro-sprinkler', organic: false, notes: 'Asking about the YieldMAX Program specifically.' },\n  { name: 'Tom Whitfield', email: 'tom.w@example.com', phone: '+15555550104', state: 'NE', crop: 'Corn', acreage: 380, irrigation_type: 'pivot', organic: false, notes: 'Runs 2 center pivots, wants a quote for both.' },\n  { name: 'Renee Dupont', email: 'renee.d@example.com', phone: '+15555550105', state: 'ID', crop: 'Potatoes', acreage: 45, irrigation_type: 'pivot', organic: false, notes: '' }\n];\nreturn leads.map(l => ({ json: l }));"
+      },
+      "id": "dummy-leads",
+      "name": "Dummy Inbound Leads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-40, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic pricing-tier lookup against Harvest Harmonics' real published rate card\n// (harvestharmonics.com/crop-booster):\n//   - Pivot irrigation: $10,000 (<=150 acres) or $20,000 (<=400 acres)\n//   - Up to 5 acres: $1,000 flat for 2 years\n//   - 6-9 acres: $250/acre/year\n//   - 10-29 acres: eligible for YieldMAX Program (needs a consult, not a flat quote)\n//   - 30+ acres: eligible for further volume discounts (needs a consult)\n// No AI needed here \u2014 this is a pure lookup table a human sales rep uses today by hand.\n\nreturn items.map(item => {\n  const lead = item.json;\n  const acres = Number(lead.acreage) || 0;\n  const isPivot = lead.irrigation_type === 'pivot';\n\n  let tier, quote_summary, requires_consult;\n\n  if (isPivot) {\n    if (acres <= 150) {\n      tier = 'pivot_small';\n      quote_summary = 'Pivot program: $10,000 for up to 150 acres under this pivot.';\n      requires_consult = false;\n    } else if (acres <= 400) {\n      tier = 'pivot_large';\n      quote_summary = 'Pivot program: $20,000 for up to 400 acres under this pivot.';\n      requires_consult = false;\n    } else {\n      tier = 'pivot_oversized';\n      quote_summary = 'Pivot acreage exceeds 400 \u2014 needs a custom multi-zone quote.';\n      requires_consult = true;\n    }\n  } else if (acres <= 5) {\n    tier = 'starter';\n    quote_summary = 'Starter rate: $1,000 flat for 2 years (up to 5 acres).';\n    requires_consult = false;\n  } else if (acres <= 9) {\n    tier = 'small_grower';\n    quote_summary = `Small grower rate: $250/acre/year \\u00d7 ${acres} acres = $${acres * 250}/year.`;\n    requires_consult = false;\n  } else if (acres <= 29) {\n    tier = 'yieldmax_eligible';\n    quote_summary = 'Eligible for the YieldMAX 2-year value-added program \u2014 schedule a consult for exact rate.';\n    requires_consult = true;\n  } else {\n    tier = 'volume_discount';\n    quote_summary = '30+ acres \u2014 eligible for further discounts/benefits, schedule a consult.';\n    requires_consult = true;\n  }\n\n  lead.pricing_tier = tier;\n  lead.quote_summary = quote_summary;\n  lead.requires_consult = requires_consult;\n  return { json: lead };\n});"
+      },
+      "id": "pricing-lookup",
+      "name": "Compute Pricing Tier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [180, 340]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{$json.requires_consult}}", "rightValue": true, "operator": { "type": "boolean", "operation": "equal" } }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-consult",
+      "name": "Needs Sales Consult?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [400, 340]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "auto_reply_message", "type": "string", "value": "=Hi {{$json.name}}, thanks for your interest in Harvest Harmonics! Based on your {{$json.acreage}}-acre {{$json.crop}} operation, this qualifies for our large-acreage program. A Sales Agronomist will reach out within 1 business day to schedule your consult and build a custom quote. In the meantime: {{$json.quote_summary}}" }
+          ]
+        }
+      },
+      "id": "draft-consult-reply",
+      "name": "Draft Consult-Needed Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [620, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "auto_reply_message", "type": "string", "value": "=Hi {{$json.name}}, thanks for your interest in Harvest Harmonics! For your {{$json.acreage}}-acre {{$json.crop}} operation: {{$json.quote_summary}} Reply here or call us to get your Crop Booster installation scheduled." }
+          ]
+        }
+      },
+      "id": "draft-instant-quote",
+      "name": "Draft Instant Quote Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [620, 460]
+    },
+    {
+      "parameters": {},
+      "id": "mock-crm-assign",
+      "name": "MOCK: Assign to Sales Agronomist in CRM/GHL",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [840, 220]
+    },
+    {
+      "parameters": {},
+      "id": "mock-send-quote",
+      "name": "MOCK SEND: Instant Quote Email/SMS",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [840, 460]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Demo)": { "main": [[{ "node": "Dummy Inbound Leads", "type": "main", "index": 0 }]] },
+    "Webhook (Production - GHL/Website Form)": { "main": [[{ "node": "Dummy Inbound Leads", "type": "main", "index": 0 }]] },
+    "Dummy Inbound Leads": { "main": [[{ "node": "Compute Pricing Tier", "type": "main", "index": 0 }]] },
+    "Compute Pricing Tier": { "main": [[{ "node": "Needs Sales Consult?", "type": "main", "index": 0 }]] },
+    "Needs Sales Consult?": {
+      "main": [
+        [{ "node": "Draft Consult-Needed Reply", "type": "main", "index": 0 }],
+        [{ "node": "Draft Instant Quote Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Draft Consult-Needed Reply": { "main": [[{ "node": "MOCK: Assign to Sales Agronomist in CRM/GHL", "type": "main", "index": 0 }]] },
+    "Draft Instant Quote Reply": { "main": [[{ "node": "MOCK SEND: Instant Quote Email/SMS", "type": "main", "index": 0 }]] }
+  }
+}
